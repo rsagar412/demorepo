@@ -1,0 +1,83 @@
+Yes, absolutely — you can keep only getFileDataset() if you're reading both datasets from files. Just use it twice with different files.
+
+Here's how:
+
+Modify your process() method like this:
+
+public ResponseDto process() {
+    log.info("🚀 POC Application started!");
+    long startTime = currentTimeMillis();
+    ResponseDto responseDto = new ResponseDto();
+    List<UnMatchedDto> unMatchedRecords = new ArrayList<>();
+
+    // Read "file dataset" (as-is)
+    Dataset<MerchantOrderPayment> datasetRowFile = getFileDataset("data/merchantOrderPayment.csv");
+
+    // Reuse the same method to read "simulated DB dataset"
+    Dataset<MerchantOrderPayment> datasetRowDb = getFileDataset("data/merchantOrderPayment_db.csv");
+
+    log.info("Matched");
+    responseDto.setFileRecordCount(datasetRowFile.count());
+
+    var matchedWithDB = datasetRowFile.join(datasetRowDb, datasetRowFile.col("atrnNum").equalTo(datasetRowDb.col("atrnNum")), "inner")
+            .select(
+                    datasetRowFile.col("mid"),
+                    datasetRowFile.col("orderRefNumber"),
+                    datasetRowFile.col("sbiOrderRefNumber"),
+                    datasetRowFile.col("atrnNum"),
+                    datasetRowFile.col("debitAmt")
+            );
+
+    matchedWithDB.show();
+    responseDto.setMatchedRecords(matchedWithDB.as(merchantOrderPayment).collectAsList());
+
+    // Unmatched records
+    var missMatchedWithDB = datasetRowFile.join(datasetRowDb, datasetRowFile.col("atrnNum").equalTo(datasetRowDb.col("atrnNum")), "leftanti")
+            .as(Encoders.bean(MerchantOrderPayment.class));
+
+    missMatchedWithDB.show();
+    missMatchedWithDB.collectAsList().forEach(fileRow -> {
+        UnMatchedDto unMatchedDto = new UnMatchedDto();
+        unMatchedDto.setDbMerchantOrderPayment(fileRow);
+        unMatchedRecords.add(unMatchedDto);
+    });
+
+    responseDto.setUnMatchedRecords(unMatchedRecords);
+    responseDto.setTimeToProcessed(formatMillis(currentTimeMillis() - startTime));
+    return responseDto;
+}
+
+Updated getFileDataset() method (parameterized):
+
+private Dataset<MerchantOrderPayment> getFileDataset(String filePath) {
+    long startTime = currentTimeMillis();
+    Dataset<Row> merchantOrderPaymentDataset = sparkSession.read()
+            .option("header", true)
+            .option("inferSchema", true)
+            .csv(filePath);
+
+    merchantOrderPaymentDataset.printSchema();
+
+    Dataset<Row> dataset = merchantOrderPaymentDataset.withColumnRenamed("MID", "mid")
+            .withColumnRenamed("ORDER_REF_NUMBER", "orderRefNumber")
+            .withColumnRenamed("SBI_ORDER_REF_NUMBER", "sbiOrderRefNumber")
+            .withColumnRenamed("ATRN_NUM", "atrnNum")
+            .withColumnRenamed("DEBIT_AMT", "debitAmt");
+
+    return dataset.as(merchantOrderPayment);
+}
+
+
+---
+
+This way, you're:
+
+Avoiding Oracle/JDBC entirely
+
+Reusing the file loader method
+
+Keeping things simple and testable with flat files
+
+
+Would you like me to provide sample CSV file contents for both datasets?
+
