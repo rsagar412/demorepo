@@ -111,3 +111,18 @@ public class SparkService {
         return dataset.as(merchantOrderPayment);
     }
 }
+
+
+SparkController-------------------------------
+@Controller
+@RequiredArgsConstructor
+public class SparkController {
+    private final SparkService sparkService;
+    @GetMapping("/")
+    public String home(Model model) {
+        model.addAttribute("message", "Welcome to JSP with Spring Boot and Spark!");
+        ResponseDto responseDto = sparkService.process();
+        model.addAttribute("result", responseDto);
+        return "home";
+    }
+}
