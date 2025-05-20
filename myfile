@@ -1,0 +1,113 @@
+package com.epay.rns.service;
+
+import com.epay.rns.dto.MerchantOrderPayment;
+import com.epay.rns.dto.ResponseDto;
+import com.epay.rns.dto.UnMatchedDto;
+import com.epay.rns.util.JdbcQuery;
+import com.sbi.epay.logging.utility.LoggerFactoryUtility;
+import com.sbi.epay.logging.utility.LoggerUtility;
+import lombok.RequiredArgsConstructor;
+import org.apache.spark.sql.*;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import static java.lang.System.currentTimeMillis;
+
+@Service
+@RequiredArgsConstructor
+public class SparkService {
+    private final LoggerUtility log = LoggerFactoryUtility.getLogger(this.getClass());
+    private final SparkSession sparkSession;
+
+    private final Encoder<MerchantOrderPayment> merchantOrderPayment;
+    private final JdbcReaderService jdbcReaderService;
+
+    public static String formatMillis(long millis) {
+        long hours = millis / (1000 * 60 * 60);
+        long minutes = (millis / (1000 * 60)) % 60;
+        long seconds = (millis / 1000) % 60;
+        long ms = millis % 1000;
+
+        return String.format("%02d:%02d:%02d.%03d", hours, minutes, seconds, ms);
+    }
+
+    public ResponseDto process() {
+        log.info("🚀 POC Application started!");
+        long startTime = currentTimeMillis();
+        ResponseDto responseDto = new ResponseDto();
+        List<UnMatchedDto> unMatchedRecords = new ArrayList<>();
+        Dataset<MerchantOrderPayment> datasetRowDb = getDbDataSet();
+        Dataset<MerchantOrderPayment> datasetRowFile = getFileDataset();
+        log.info("Matched");
+        responseDto.setFileRecordCount(datasetRowFile.count());
+        var matchedWithDB = datasetRowFile.join(datasetRowDb, datasetRowFile.col("atrnNum").equalTo(datasetRowDb.col("atrnNum")), "inner")
+                .select(
+                        datasetRowFile.col("mid"),
+                        datasetRowFile.col("orderRefNumber"),
+                        datasetRowFile.col("sbiOrderRefNumber"),
+                        datasetRowFile.col("atrnNum"),
+                        datasetRowFile.col("debitAmt")
+                );
+        log.error("{} time took to calculate matchedWithDB(Spark.JOIN).", formatMillis(currentTimeMillis() - startTime));
+        matchedWithDB.show();
+
+        responseDto.setMatchedRecords(matchedWithDB.as(merchantOrderPayment).collectAsList());
+        log.info("Unmatched: updated or added records");
+        var missMatchedWithDB = datasetRowFile.join(datasetRowDb, datasetRowFile.col("atrnNum").equalTo(datasetRowDb.col("atrnNum")), "leftanti").as(Encoders.bean(MerchantOrderPayment.class));
+        missMatchedWithDB.show();
+        missMatchedWithDB.collectAsList().forEach(fileRow -> {
+            log.info("File Record: {}", fileRow);
+//            Dataset<MerchantOrderPayment> fileRowDs = datasetRowDb.filter("atrnNum = " + fileRow.getAtrnNum());
+            UnMatchedDto unMatchedDto = new UnMatchedDto();
+            unMatchedDto.setDbMerchantOrderPayment(fileRow);
+           /* if (fileRowDs.count() == 0) {
+                log.info("New record: {}", fileRow.getAtrnNum());
+                unMatchedDto.setNew(true);
+            } else {
+                log.info("Updated, DB record: {}", fileRowDs.collectAsList());
+            }*/
+            unMatchedRecords.add(unMatchedDto);
+        });
+        responseDto.setUnMatchedRecords(unMatchedRecords);
+        responseDto.setTimeToProcessed(formatMillis(currentTimeMillis() - startTime));
+        log.error("{} time took to calculate matchedWithDB(Spark.JOIN).", formatMillis(currentTimeMillis() - startTime));
+        return responseDto;
+    }
+
+    private Dataset<MerchantOrderPayment> getDbDataSet() {
+        long startTime = currentTimeMillis();
+        String merchantOrderPaymentQuery = JdbcQuery.getYesterdayQuery("PAYAGGTRANSCTION.MERCHANT_ORDER_PAYMENTS", currentTimeMillis());
+        Dataset<Row> datasetRow = jdbcReaderService.readJdbcQuery(merchantOrderPaymentQuery);
+        log.error("{} time took to call jdbcReaderService.readJdbcQuery().", formatMillis(currentTimeMillis() - startTime));
+        log.error("DB datasetRow count: {}", datasetRow.count());
+            /* Dataset<Row> datasetRow = sparkSession.read().option("header", true).option("inferSchema", true)
+                .csv("data/employeeDb.csv").cache();*/
+        datasetRow.printSchema();
+        startTime = currentTimeMillis();
+        Dataset<Row> dataset = datasetRow.withColumnRenamed("MERCHANT_ID", "mid")
+                .withColumnRenamed("ORDER_REF_NUMBER", "orderRefNumber")
+                .withColumnRenamed("SBI_ORDER_REF_NUMBER", "sbiOrderRefNumber")
+                .withColumnRenamed("ATRN_NUM", "atrnNum")
+                .withColumnRenamed("DEBIT_AMT", "debitAmt");
+        log.error("{} time took to call datasetRow.withColumnRenamed().", formatMillis(currentTimeMillis() - startTime));
+        dataset.printSchema();
+        return dataset.as(merchantOrderPayment);
+    }
+
+    private Dataset<MerchantOrderPayment> getFileDataset() {
+        long startTime = currentTimeMillis();
+        Dataset<Row> merchantOrderPaymentDataset = sparkSession.read().option("header", true).option("inferSchema", true)
+                .csv("data/merchantOrderPayment.csv");
+        System.err.println(formatMillis(currentTimeMillis() - startTime) + " time took to call read csv file.");
+        merchantOrderPaymentDataset.printSchema();
+        Dataset<Row> dataset = merchantOrderPaymentDataset.withColumnRenamed("MID", "mid")
+                .withColumnRenamed("ORDER_REF_NUMBER", "orderRefNumber")
+                .withColumnRenamed("SBI_ORDER_REF_NUMBER", "sbiOrderRefNumber")
+                .withColumnRenamed("ATRN_NUM", "atrnNum")
+                .withColumnRenamed("DEBIT_AMT", "debitAmt");
+        dataset.printSchema();
+        return dataset.as(merchantOrderPayment);
+    }
+}
