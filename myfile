@@ -126,3 +126,79 @@ public class SparkController {
         return "home";
     }
 }
+
+
+-------------------application.yml file---------------------------
+
+server:
+  servlet:
+    context-path: /api/rns/v1/
+    jsp:
+      init-parameters:
+        development: true
+  port: 9097
+security:
+  jwt:
+    secret.issuer: sbi.epay
+    secret.key: bsrfgskjfhsdjkhkflkdlksdlfkskfwperip3ke3le3lmldrnkfnhiewjfejfokepfkldkfoikfokork3dklwedlsvflvkfkvlkdfvodkvcdokro3
+  whitelist.urls: /webjars/, /actuator/, /swagger-resources/, /v3/api-docs, /v3/api-docs/**, /swagger-ui/**, /index.html, /login
+  cors.allowed.origins: "*"
+  cors:
+    origin: https://www.sbiepay.sbi/
+spring:
+  profiles:
+    active: local
+  application:
+    name: Recon Settlement Service
+  # Db connectivity
+  jpa:
+    properties:
+      hibernate:
+        show-sql: true
+        format_sql: true
+    show-sql: true
+  datasource:
+  driver-class-name:
+    oracle.jdbc.OracleDriver
+  # Liquibase Properties
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.xml
+    enabled: true
+    drop-first: false
+  mvc:
+    view:
+      prefix: /WEB-INF/views/
+      suffix: .jsp
+  kafka:
+    #Kafka producer config
+    producer:
+      acks: all
+      retries: 3
+      batchSize: 1000
+      lingerMs: 1
+      bufferMemory: 33554432
+      keyDeserializer: org.apache.kafka.common.serialization.StringSerializer
+      valueDeserializer: org.apache.kafka.common.serialization.StringSerializer
+    #Kafka topic config
+    topic:
+      transaction:
+        payment:
+          updateSettlementStatus: recon_update_settlement_status_topic
+      partitions: 4
+      replicationFactor: 1
+
+spark:
+  app:
+    name: ${spring.application.name}
+    master: spark://localhost:7077
+#spark.master can be:
+#	local[*] for local mode
+#	spark://host:port spark://localhost:7077 for Spark Standalone cluster
+#	yarn for Hadoop YARN cluster
+#	k8s:// for Kubernetes
+
+logging:
+  level:
+    liquibase: DEBUG
+    #org.apache.kafka: ERROR
+
