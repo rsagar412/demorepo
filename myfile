@@ -202,3 +202,48 @@ logging:
     liquibase: DEBUG
     #org.apache.kafka: ERROR
 
+
+--------application-local.yml-------------------
+
+
+spring:
+  datasource:
+    url: jdbc:oracle:thin:@10.177.134.124:1590:epaydbdev1
+    username: SHILPA_KOTHRE
+    password: SHILPA_KOTHRE
+    
+
+    #Kafka SSL Config for dev Kafka server
+  kafka:
+    bootstrapServers: dev-cluster-kafka-bootstrap-dev-kafka.apps.dev.sbiepay.sbi:443
+    properties:
+      security.protocol: SSL
+      ssl:
+        truststore:
+          location: D:/Sagar/Recon_settlement/certs/dev-cluster-cluster-ca-cert.p12
+          password: Xe8FrxOGvVAx
+          type: PKCS12
+        keystore:
+          location: D:/Sagar/Recon_settlement/certs/dev-cluster-clients-ca-cert.p12
+          password: J55FITkgEFid
+          type: PKCS12
+    consumer:
+      number-of-consumer: 1
+
+
+transaction:
+  kafka:
+    sslConfig:
+      provided: yes
+aws:
+  s3:
+    url: https://s3store.bank.sbi/
+    region: ap-south-1
+    key: IDHJO1513FFMMNLPR9BC
+    secret: avXqEPv5B_QqqPK0D1VJzP3pSyAA4x31Zu_KucQ9
+    bucket: epay-nonprod-s3bucket
+external:
+  api:
+    services.base.path:
+      admin: https://dev.epay.sbi/api/admin/v1
+
