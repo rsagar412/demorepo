@@ -1,0 +1,36 @@
+package com.epay.rns.dao.cache;
+
+import com.epay.rns.dto.BankFileConfigDto;
+import com.epay.rns.mapper.BankFileConfigMapper;
+import com.epay.rns.repository.cache.BankFileConfigCacheRepository;
+import com.sbi.epay.logging.utility.LoggerFactoryUtility;
+import com.sbi.epay.logging.utility.LoggerUtility;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
+
+@Component
+@RequiredArgsConstructor
+public class BankFileConfigDao {
+    private final LoggerUtility logger = LoggerFactoryUtility.getLogger(this.getClass());
+
+    private final BankFileConfigCacheRepository bankFileConfigCacheRepository;
+    private final BankFileConfigMapper bankFileConfigMapper;
+
+    /**
+     * This method is used to get bank file config from cache.
+     *
+     * @param bankId   int.
+     * @param sftpPath String.
+     * @param fileType String.
+     * @return BankFileConfigDto
+     */
+    public BankFileConfigDto getBankFileConfig(int bankId, String sftpPath, String fileType) {
+        BankFileConfigDto bankFileConfigDto = null;
+        try {
+            bankFileConfigDto = bankFileConfigMapper.mapToBankFileConfigDto(bankFileConfigCacheRepository.findByBankIdAndSftpPathAndFileType(bankId, sftpPath, fileType));
+        } catch (Exception ex) {
+            logger.error("Error while retrieving bank file config from cache.");
+        }
+        return bankFileConfigDto;
+    }
+}
