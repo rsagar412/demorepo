@@ -1,0 +1,129 @@
+Great! Here's a professional and clear README.md template tailored to your Spring Boot + Apache Spark + Kafka + AWS S3 + OracleDB Transaction Reconciliation Project.
+
+
+---
+
+README.md
+
+# Epay Reconciliation & Settlement Service
+
+A scalable microservice built with **Spring Boot** and **Apache Spark**, designed for high-volume **transaction reconciliation** and settlement across banks and payment providers.
+
+---
+
+## :gear: Features
+
+- Transaction ingestion from **AWS S3** (BankCode/Paymode/Date folder structure)
+- Real-time processing with **Apache Spark**
+- Streaming integration with **Apache Kafka**
+- Persistent storage with **Oracle DB**
+- Entity caching for performance
+- REST API with Swagger/OpenAPI docs
+
+---
+
+## :rocket: Tech Stack
+
+| Layer        | Technology        |
+|--------------|-------------------|
+| Backend      | Spring Boot, Java |
+| Processing   | Apache Spark      |
+| Messaging    | Apache Kafka      |
+| Storage      | Oracle Database   |
+| Cloud        | AWS S3            |
+| Docs & Tools | Swagger, Lombok, MapStruct |
+
+---
+
+## :file_folder: Project Structure
+
+epay_recon_settlement_service/ │ ├── src/main/java/com/yourcompany/recon │   ├── config/ │   ├── controller/ │   ├── service/ │   ├── repository/ │   └── spark/ ├── resources/ │   ├── application.yml │   ├── application-local.yml │   └── application-prod.yml └── README.md
+
+---
+
+## :page_facing_up: Configuration
+
+Edit environment-specific values in `application.yml` or `application-<profile>.yml`.
+
+```yaml
+spark:
+  app.name: EpayRecon
+  master: spark://localhost:7077
+  local.dir: C:/spark/tmp
+
+kafka:
+  bootstrap-servers: localhost:9092
+
+aws:
+  s3:
+    bucket-name: recon-files
+    region: ap-south-1
+
+> Note: Set java.io.tmpdir using JVM arguments:
+
+java -Djava.io.tmpdir=C:/spark/tmp -jar epay-recon.jar
+
+
+
+
+---
+
+:hammer: Build & Run
+
+With Maven:
+
+mvn clean install
+java -Djava.io.tmpdir=C:/spark/tmp -jar target/epay-recon.jar
+
+With Docker:
+
+> [Add Docker instructions if applicable]
+
+
+
+
+---
+
+:zap: Sample Kafka & Spark Setup (Standalone)
+
+Start Spark Master:
+
+./sbin/start-master.sh
+
+Start Worker:
+
+./sbin/start-worker.sh spark://<master-ip>:7077
+
+
+
+---
+
+:test_tube: API Documentation
+
+Swagger UI available at:
+
+http://localhost:8080/swagger-ui.html
+
+
+
+---
+
+:shield: License
+
+This project is licensed under the MIT License.
+
+
+---
+
+:handshake: Contributors
+
+Sagar (Lead Developer)
+
+[Your teammates or contributors]
+
+
+
+---
+
+Would you like me to customize any part of this for your company, module names, or folder structure? I can also create a full README with badge icons, GitHub Actions workflow, or database ER diagrams if needed.
+
