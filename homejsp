@@ -1,0 +1,27 @@
+<%@ page contentType="text/html;charset=UTF-8" language="java" %>
+<%@ taglib prefix="c" uri="http://java.sun.com/jsp/jstl/core" %>
+<html>
+<head><title>Spark POC</title></head>
+<body>
+    <h1>Compare Result:</h1>
+    <h2>File Record Count: ${result.fileRecordCount}</h1>
+    <h2>Time took to processed: ${result.timeToProcessed}</h1>
+    <ul>
+        <h2>Matched:</h1>
+        <c:forEach var="matchedRecord" items="${result.matchedRecords}">
+            <li>${matchedRecord.mid} - ${matchedRecord.sbiOrderRefNumber} - ${matchedRecord.atrnNum}</li>
+        </c:forEach>
+    </ul>
+    <ul>
+        <h2>Unmatched:</h1>
+        <c:forEach var="unMatchedRecord" items="${result.unMatchedRecords}">
+            <li>
+            <c:choose>
+                <c:when test="${unMatchedRecord.isNew()}">New</c:when>
+                <c:otherwise>Updated</c:otherwise>
+            </c:choose>
+             Record - ${unMatchedRecord.dbMerchantOrderPayment.mid} - ${unMatchedRecord.dbMerchantOrderPayment.sbiOrderRefNumber} - ${unMatchedRecord.dbMerchantOrderPayment.atrnNum}</li>
+        </c:forEach>
+    </ul>
+</body>
+</html>
