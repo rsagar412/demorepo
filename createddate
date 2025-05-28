@@ -1,1 +1,87 @@
-dafadf
+
+Thanks for sharing the screenshots and code. Based on the investigation:
+
+✅ Problem Identified:
+
+You're not getting data from the database, but the CSV fallback is working, which means:
+
+Your DB connection and Spark setup are correct.
+
+The SQL query likely does not match any records due to a mismatch in timestamp format.
+
+
+📌 Root Cause:
+
+Your query filters CREATED_DATE using epoch millis (long values) via:
+
+WHERE CREATED_DATE BETWEEN %d AND %d
+
+But in Oracle:
+
+CREATED_DATE is a DATE or TIMESTAMP type.
+
+Epoch millis like 1726138792000 won’t match unless explicitly cast.
+
+
+
+---
+
+✅ Fix: Convert millis to Oracle TIMESTAMP
+
+Update the JdbcQuery.java to generate SQL like this:
+
+SELECT * FROM %s
+WHERE CREATED_DATE BETWEEN TO_TIMESTAMP(%d / 1000) AND TO_TIMESTAMP(%d / 1000)
+
+But Oracle doesn’t directly allow %d / 1000 — you must calculate it in Java.
+
+
+---
+
+🔧 Suggested Code Fix
+
+JdbcQuery.java
+
+public static final String SELECT_BY_CREATED_DATE_TEMPLATE = """
+    SELECT * FROM %s
+    WHERE CREATED_DATE BETWEEN TO_TIMESTAMP('%s', 'YYYY-MM-DD HH24:MI:SS.FF')
+    AND TO_TIMESTAMP('%s', 'YYYY-MM-DD HH24:MI:SS.FF')
+    """;
+
+public static String getQueryByCreatedDate(String table, long currentMillis) {
+    Instant now = Instant.ofEpochMilli(currentMillis);
+    Instant oneDayBefore = now.minus(Duration.ofDays(1));
+    
+    String nowFormatted = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
+        .withZone(ZoneId.systemDefault()).format(now);
+    String oneDayBeforeFormatted = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
+        .withZone(ZoneId.systemDefault()).format(oneDayBefore);
+
+    return String.format(SELECT_BY_CREATED_DATE_TEMPLATE, table, oneDayBeforeFormatted, nowFormatted);
+}
+
+
+---
+
+✅ Usage in SparkService.java
+
+Replace:
+
+String query = JdbcQuery.getYesterdayQuery("MERCHANT_ORDER_PAYMENTS", currentTimeMillis());
+
+with:
+
+String query = JdbcQuery.getQueryByCreatedDate("MERCHANT_ORDER_PAYMENTS", currentTimeMillis());
+
+
+---
+
+✅ Final Thoughts
+
+You must always match Oracle DATE/TIMESTAMP with TO_DATE() or TO_TIMESTAMP(), not numeric millis.
+
+You’re reading CSV because the DB result is empty due to this mismatch.
+
+
+Let me know if you want to parameterize this for custom time ranges or cron-based scheduling.
+
