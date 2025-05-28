@@ -128,6 +128,78 @@ SELECT * FROM MERCHANT_ORDER_PAYMENTS
 WHERE CREATED_DATE = 1726138792000
 
 
+
+
+Thanks for the clear screenshot!
+
+❌ Issue
+
+You're getting:
+
+ORA-00932: inconsistent datatypes: expected NUMBER got TIMESTAMP
+
+This means the column CREATED_DATE in your table is of type NUMBER, not DATE or TIMESTAMP.
+
+This is likely because your table stores CREATED_DATE as a Unix timestamp in milliseconds (NUMBER), rather than a proper date/time type.
+
+
+---
+
+✅ Fix
+
+You should not use TO_TIMESTAMP in the query. Instead, directly compare using numeric values (i.e., millisecond range for that day).
+
+
+---
+
+✅ Corrected Code
+
+Replace the current query template with:
+
+public static final String SELECT_BY_CREATED_DATE_TEMPLATE = """
+    SELECT * FROM %s
+    WHERE CREATED_DATE BETWEEN %d AND %d
+    """;
+
+public static String getQueryByCreatedDate(String table, long currentMillis) {
+    // Convert currentMillis to start and end of day (in milliseconds)
+    Instant now = Instant.ofEpochMilli(currentMillis);
+    ZonedDateTime zdt = now.atZone(ZoneId.systemDefault());
+
+    long startOfDay = zdt.toLocalDate().atStartOfDay(zdt.getZone()).toInstant().toEpochMilli();
+    long endOfDay = zdt.toLocalDate().atTime(23, 59, 59, 999_000_000)
+                         .atZone(zdt.getZone()).toInstant().toEpochMilli();
+
+    return String.format(SELECT_BY_CREATED_DATE_TEMPLATE, table, startOfDay, endOfDay);
+}
+
+
+---
+
+🧪 Example
+
+If your date is 2024-05-27, this will generate:
+
+SELECT * FROM MERCHANT_ORDER_PAYMENTS
+WHERE CREATED_DATE BETWEEN 1716767400000 AND 1716853799999
+
+
+---
+
+📝 Summary
+
+✅ Your CREATED_DATE is stored as NUMBER (milliseconds).
+
+❌ Don’t use TO_TIMESTAMP.
+
+✅ Use BETWEEN startMillis AND endMillis instead.
+
+
+Let me know if you want this generalized to filter by any date string (like "2024-05-27").
+
+
+
+
 ---
 
 Let me know if you want:
