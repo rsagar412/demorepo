@@ -85,3 +85,58 @@ You’re reading CSV because the DB result is empty due to this mismatch.
 
 Let me know if you want to parameterize this for custom time ranges or cron-based scheduling.
 
+
+Absolutely! Based on your earlier screenshot (getYesterdayQuery) and your request, here’s a simple version of a method getQueryByCreatedDate that builds a query using a specific createdDate timestamp in milliseconds.
+
+
+---
+
+✅ Goal
+
+Generate a SQL like:
+
+SELECT * FROM <table> WHERE CREATED_DATE = <createdDate>
+
+
+---
+
+🧩 Code Implementation
+
+@UtilityClass
+public class JdbcQuery {
+
+    public static final String SELECT_BY_CREATED_DATE_TEMPLATE = """
+        SELECT * FROM %s
+        WHERE CREATED_DATE = %d
+        """;
+
+    public static String getQueryByCreatedDate(String table, long createdDateMillis) {
+        return String.format(SELECT_BY_CREATED_DATE_TEMPLATE, table, createdDateMillis);
+    }
+}
+
+
+---
+
+📝 Example Usage
+
+String query = JdbcQuery.getQueryByCreatedDate("MERCHANT_ORDER_PAYMENTS", 1726138792000L);
+
+This would produce:
+
+SELECT * FROM MERCHANT_ORDER_PAYMENTS
+WHERE CREATED_DATE = 1726138792000
+
+
+---
+
+Let me know if you want:
+
+Range-based query (e.g. BETWEEN instead of =),
+
+Support for readable timestamps (yyyy-MM-dd HH:mm:ss),
+
+Or to combine this with other filters.
+
+
+
