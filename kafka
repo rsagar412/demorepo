@@ -1,0 +1,56 @@
+@Service
+@RequiredArgsConstructor
+public class AggMerchantChargeDetailsListenerService {
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final AggMerchantChargeDetailsDao aggMerchantChargeDetailsDao;
+    private final MerchantInfoCacheDao merchantInfoCacheDao;
+
+    LoggerUtility logger = LoggerFactoryUtility.getLogger(this.getClass());
+
+    public void processAggMerchantChargeDetails(JsonNode after) {
+        try {
+            AggMerchantChargeDetailsDto aggMerchantChargeDetailsDto = objectMapper.treeToValue(after, AggMerchantChargeDetailsDto.class);
+            Optional<Merchant> merchantInfo = aggMerchantChargeDetailsDao.getMerchantInfoDetailsList(aggMerchantChargeDetailsDto.getMerchantId());
+            if (merchantInfo.isEmpty()) {
+                logger.info("Incoming message AGGMERCHANTCHARGEDETAILS record is not found in View MERCHANTID: {}", aggMerchantChargeDetailsDto.getMerchantId());
+                return;
+            }
+
+            //List<MerchantInfoEntity> merchantBankAccountsList=merchantInfo.get();
+            //List<MerchantCache> merchantBankAccountCacheList = merchantInfo.stream().map(details -> {
+            MerchantCache merchantCacheEntity = new MerchantCache();
+            BeanUtils.copyProperties(merchantInfo.get(), merchantCacheEntity);
+               /* return merchantCache;
+            }).toList();*/
+
+
+            Optional<MerchantCache> merchantCache = merchantInfoCacheDao.getMerchantInfoDetailsFromCache(aggMerchantChargeDetailsDto.getMerchantId());
+            if (merchantCache.isEmpty()) {
+                //if not present save into db(cache)
+                merchantInfoCacheDao.saveMerchantInfo(merchantCacheEntity);
+                logger.info("Incoming message inserted MerchantInfoEntity record is saved cache, Merchantid: {}", aggMerchantChargeDetailsDto.getMerchantId());
+                return;
+            }
+            //if present then update into db(cache)
+            merchantInfoCacheDao.saveMerchantInfo(merchantCacheEntity);
+            logger.info("Incoming message inserted MerchantInfoEntity record is saved cache, Merchantid: {}", aggMerchantChargeDetailsDto.getMerchantId());
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public void deleteAggMerchantChargeDetails(JsonNode before) {
+        try {
+            AggMerchantChargeDetailsDto aggMerchantChargeDetailsDto = objectMapper.treeToValue(before, AggMerchantChargeDetailsDto.class);
+            Optional<MerchantCache> merchantCache = merchantInfoCacheDao.getMerchantInfoDetailsFromCache(aggMerchantChargeDetailsDto.getMerchantId());
+            if (merchantCache.isPresent()) {
+                logger.info("AGGMERCHANTCHARGEDETAILS record is deleting from Cache, MERCHANTID: {}", aggMerchantChargeDetailsDto.getMerchantId());
+                merchantInfoCacheDao.deleteAggregatorMerchant(aggMerchantChargeDetailsDto.getMerchantId());
+            } else {
+                logger.info("AGGMERCHANTCHARGEDETAILS record is not found in Cache, MERCHANTID: {}", aggMerchantChargeDetailsDto.getMerchantId());
+            }
+        } catch (Exception ex) {
+            throw new RuntimeException(ex);
+        }
+    }
+}
