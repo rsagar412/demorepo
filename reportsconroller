@@ -1,0 +1,108 @@
+package com.epay.reporting.controller;
+
+import com.epay.reporting.entity.view.RecentTransactionReport;
+import com.epay.reporting.entity.view.TransactionPaymodeReport;
+import com.epay.reporting.entity.view.TransactionSummaryReport;
+import com.epay.reporting.model.request.RecentTransactionRequest;
+import com.epay.reporting.model.request.TransactionPayModeRequest;
+import com.epay.reporting.model.request.TransactionSummaryRequest;
+import com.epay.reporting.model.response.ReportingResponse;
+import com.epay.reporting.service.TransactionDashboardService;
+import com.epay.reporting.util.enums.Frequency;
+import com.sbi.epay.logging.utility.LoggerFactoryUtility;
+import com.sbi.epay.logging.utility.LoggerUtility;
+import io.swagger.v3.oas.annotations.Operation;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.web.bind.annotation.*;
+
+/**
+ * Class Name: InvoiceController
+ * *
+ * Description: To handle the Invoice request and provide the response.
+ * *
+ * Author: Bhoopendra Rajput
+ * <p>
+ * Copyright (c) 2024 [State Bank of India]
+ * All rights reserved
+ * *
+ * Version:1.0
+ */
+@RestController
+@RequestMapping("/transaction")
+@RequiredArgsConstructor
+public class TransactionDashboardController {
+    private final LoggerUtility log = LoggerFactoryUtility.getLogger(this.getClass());
+
+    private final TransactionDashboardService transactionDashboardService;
+
+    /**
+     * Retrieves transaction trend data for a given merchant ID (MID) based on the specified frequency (DAILY/MONTHLY).
+     *
+     * @param mId The merchant ID (MID) for which the transaction trends are to be fetched.
+     * @param frequency The frequency (DAILY, MONTHLY, YEARLY) for which the transaction data is to be aggregated.
+     * @return ReportingResponse<TransactionSummaryReport> A response containing the transaction trend data for the specified merchant and frequency.
+     */
+    @GetMapping("/trends/{mId}/{frequency}")
+    @Operation(summary = "Get Transaction Success Data based on Frequency(DAILY/MONTHLY)")
+    public ReportingResponse<TransactionSummaryReport> getTransactionTrends(@PathVariable String mId, @PathVariable String frequency) {
+        log.info("Transaction Trends Request : mId {}, frequency{}", mId, frequency);
+        return transactionDashboardService.getTransactionTrends(mId, frequency);
+    }
+
+    /**
+     * Retrieves transaction success data, categorized by payment mode, for a given merchant ID (MID) and specified date range.
+     *
+     * @param mId The merchant ID (MID) for which the transaction pay mode report is to be fetched.
+     * @param transactionPayModeRequest The request body containing the date range and other parameters to filter the pay mode data.
+     * @return ReportingResponse<TransactionPaymodeReport> A response containing the pay mode-wise transaction data for the specified merchant and date range.
+     */
+    @PostMapping("/paymode/{mId}")
+    @Operation(summary = "Get Transaction Success Data PayMode wise for given Range")
+    public ReportingResponse<TransactionPaymodeReport> getTransactionPayModeReport(@PathVariable String mId, @Valid @RequestBody TransactionPayModeRequest transactionPayModeRequest) {
+        log.info("Transaction Pay Mode Request : mId {}, frequency{}", mId, transactionPayModeRequest);
+        return transactionDashboardService.getTransactionPayModeReport(mId, transactionPayModeRequest);
+    }
+
+    /**
+     * Retrieves a summary report of transaction success and failure data for a given merchant ID (MID) and specified date range.
+     *
+     * @param mId The merchant ID (MID) for which the transaction summary report is to be fetched.
+     * @param transactionSummaryRequest The request body containing the date range and other parameters to filter the transaction data.
+     * @return ReportingResponse<TransactionSummaryReport> A response containing the transaction summary data for the specified merchant and date range.
+     */
+    @PostMapping("/summary/{mId}")
+    @Operation(summary = "Get Transaction Success and Fail Data for given Range")
+    public ReportingResponse<TransactionSummaryReport> getTransactionSummaryReport(@PathVariable String mId, @Valid @RequestBody TransactionSummaryRequest transactionSummaryRequest) {
+        log.info("Transaction Pay Mode Request : mId {}, frequency{}", mId, transactionSummaryRequest);
+        return transactionDashboardService.getTransactionSummaryReport(mId, transactionSummaryRequest);
+    }
+
+    /**
+     * Retrieves recent transaction data for a given merchant ID (MID) based on the specified frequency (DAILY/MONTHLY) and time period.
+     *
+     * @param mId The merchant ID (MID) for which the recent transaction are to be fetched.
+     * @return ReportingResponse<RecentTransactionReport> A response containing the recent transaction data for the specified merchant, frequency and time period.
+     */
+    @PostMapping("/recent/{mId}")
+    @Operation(summary = "Get Transaction Success Data based on Frequency(DAILY/MONTHLY)")
+    public ReportingResponse<RecentTransactionReport> getRecentTransaction(@PathVariable String mId, @Valid @RequestBody RecentTransactionRequest recentTransactionRequest, @PageableDefault(size = 50) Pageable pageable) {
+        log.info("Recent Transaction Request : mId {}, frequency{}", mId, recentTransactionRequest);
+        return transactionDashboardService.getRecentTransactionsSummary(mId, recentTransactionRequest, pageable);
+    }
+
+    /**
+     * To Download recent transaction data for a given merchant ID (MID) based on the specified frequency (DAILY/MONTHLY) and time period.
+     *
+     * @param mId The merchant ID (MID) for which the recent transaction are to be fetched.
+     */
+    @PostMapping("/download/{mId}")
+    @Operation(summary = "Get Transaction Success Data based on Frequency(DAILY/MONTHLY)")
+    public void downloadRecentTransaction(HttpServletResponse response, @PathVariable String mId, @Valid @RequestBody RecentTransactionRequest recentTransactionRequest) {
+        log.info("Recent Transaction Request : mId {}, frequency{}", mId, recentTransactionRequest);
+        transactionDashboardService.downloadRecentTransactionReport(response, mId, recentTransactionRequest);
+    }
+}
