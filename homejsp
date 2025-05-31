@@ -25,3 +25,56 @@
     </ul>
 </body>
 </html>
+
+
+
+getting the below error 
+
+Whitelabel Error Page
+This application has no explicit mapping for /error, so you are seeing this as a fallback.
+
+Sat May 31 12:43:39 IST 2025
+There was an unexpected error (type=Not Found, status=404).
+
+
+this is my main class - 
+
+@SpringBootApplication
+@ClientCacheApplication
+@EnableEntityDefinedRegions(basePackages = "com.sbi.epay.cache.admin.entity")
+@EnableGemfireRepositories(basePackages = "com.epay.rns.repository.cache")
+public class ReconSettlementServiceApplication {
+
+	public static void main(String[] args) {
+		SpringApplication.run(ReconSettlementServiceApplication.class, args);
+	}
+
+}
+
+
+
+and this is my controller
+
+@Controller
+@Slf4j
+@RequiredArgsConstructor
+public class SparkController {
+    private final SparkService sparkService;
+    @GetMapping("/")
+    public String home(Model model) {
+        model.addAttribute("message", "Welcome to JSP with Spring Boot and Spark!");
+        ResponseDto responseDto = sparkService.process();
+        model.addAttribute("result", responseDto);
+        return "home";
+    }
+
+
+this is my servlet configuration
+
+server:
+  servlet:
+    context-path: /api/rns/v1/
+    jsp:
+      init-parameters:
+        development: true
+  port: 9097
