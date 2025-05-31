@@ -106,3 +106,391 @@ public class TransactionDashboardController {
         transactionDashboardService.downloadRecentTransactionReport(response, mId, recentTransactionRequest);
     }
 }
+
+
+
+
+
+---------------------------Service----------------------------
+
+
+package com.epay.reporting.service;
+
+import com.epay.reporting.config.ReportingConfig;
+import com.epay.reporting.dao.TransactionDashboardDao;
+import com.epay.reporting.entity.view.RecentTransactionReport;
+import com.epay.reporting.entity.view.TransactionPaymodeReport;
+import com.epay.reporting.entity.view.TransactionSummaryReport;
+import com.epay.reporting.model.request.RecentTransactionRequest;
+import com.epay.reporting.model.request.TransactionPayModeRequest;
+import com.epay.reporting.model.request.TransactionSummaryRequest;
+import com.epay.reporting.model.response.ReportingResponse;
+import com.epay.reporting.util.ReportingConstant;
+import com.epay.reporting.util.enums.Frequency;
+import com.epay.reporting.util.enums.Report;
+import com.epay.reporting.util.enums.ReportFormat;
+import com.epay.reporting.util.file.model.FileModel;
+import com.epay.reporting.validator.MIdValidator;
+import com.epay.reporting.validator.TransactionDashboardValidator;
+import com.sbi.epay.logging.utility.LoggerFactoryUtility;
+import com.sbi.epay.logging.utility.LoggerUtility;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.ObjectUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+
+import java.util.*;
+
+/**
+ * Class Name: TransactionDashboardService
+ * *
+ * Description: This service class handles the business logic for Transaction Dashboard
+ * *
+ * Author: Bhoopendra Rajput
+ * <p>
+ * Copyright (c) 2024 [State Bank of India]
+ * All rights reserved
+ * *
+ * Version:1.0
+ */
+@Service
+@RequiredArgsConstructor
+public class TransactionDashboardService {
+    private final LoggerUtility log = LoggerFactoryUtility.getLogger(this.getClass());
+
+    private final TransactionDashboardDao transactionDashboardDao;
+    private final MIdValidator mIdValidator;
+    private final FileGeneratorService fileGeneratorService;
+    private final ReportingConfig reportingConfig;
+    private final TransactionDashboardValidator transactionDashboardValidator;
+
+    /**
+     * Fetches transaction trends (daily, weekly, or monthly) for a given merchant ID and frequency.
+     * @param mId - Merchant ID
+     * @param frequency - Frequency of the trends
+     * @return List of transaction trend data
+     */
+    public ReportingResponse<TransactionSummaryReport> getTransactionTrends(String mId, String frequency) {
+        transactionDashboardValidator.validateTransactionTrendsRequest(mId, frequency);
+        log.info("Fetching Transaction Trends for MerchantId: {} and frequency {}", mId, frequency);
+        List<TransactionSummaryReport> transactionDailyTrends = transactionDashboardDao.getTransactionTrends(mId, Frequency.getName(frequency));
+        return ReportingResponse.<TransactionSummaryReport>builder().data(transactionDailyTrends).build();
+    }
+
+    /**
+     * Fetches recent transaction (daily, or monthly) for a given merchant ID, frequency, from Date and to date.
+     * @param mId - Merchant ID
+     * @return List of recent transaction data
+     */
+    public ReportingResponse<RecentTransactionReport> getRecentTransactionsSummary(String mId, RecentTransactionRequest recentTransactionRequest, Pageable pageable) {
+        transactionDashboardValidator.validateRequest(mId, recentTransactionRequest);
+        log.info("Fetching Recent Transaction for MerchantId: {} and frequency {}", mId, recentTransactionRequest);
+        Page<RecentTransactionReport> transactionDailyTrends = transactionDashboardDao.getRecentTransactionSummary(mId, recentTransactionRequest, pageable);
+        return ReportingResponse.<RecentTransactionReport>builder().data(transactionDailyTrends.stream().toList()).count(transactionDailyTrends.stream().count()).total(transactionDailyTrends.getTotalElements()).status(ReportingConstant.RESPONSE_SUCCESS).build();
+    }
+
+    public void downloadRecentTransactionReport(HttpServletResponse httpResponse, String mId, RecentTransactionRequest recentTransactionRequest) {
+        Pageable pageable = PageRequest.of(0, reportingConfig.getReportPageSize());
+        List<RecentTransactionReport> recentTransactionReportList = getRecentTransactionsSummary(mId, recentTransactionRequest, pageable).getData();
+        List<List<Object>> fileData = recentTransactionReportList.stream().map(this::convertToListOfObject).toList();
+        buildReport(mId, getHeaders(), fileData, httpResponse);
+    }
+
+    /**
+     * Fetches the transaction payMode report for a given Merchant ID (MID) and date range.
+     *
+     * @param mId                       Merchant ID for which the report is to be fetched
+     * @param transactionPayModeRequest Request object containing the date range (fromDate and toDate)
+     * @return ReportingResponse<TransactionPayModeReport> containing the list of transaction payMode reports
+     */
+    public ReportingResponse<TransactionPaymodeReport> getTransactionPayModeReport(String mId, TransactionPayModeRequest transactionPayModeRequest) {
+        mIdValidator.validateMid(mId);
+        log.info("Fetching transaction pay mode report for MID: {} and Request: {}", mId, transactionPayModeRequest);
+        List<TransactionPaymodeReport> transactionDailyPayMode = transactionDashboardDao.getTransactionPayModeReport(mId, transactionPayModeRequest);
+        return ReportingResponse.<TransactionPaymodeReport>builder().data(transactionDailyPayMode).status(ReportingConstant.RESPONSE_SUCCESS).build();
+    }
+
+    /**
+     * This method generates the daily transaction report with failure details and percentage calculation.
+     *
+     * @param mId                       Merchant ID
+     * @param transactionSummaryRequest Request object containing the date range (fromDate and toDate)
+     * @return List of TransactionSummaryReport
+     */
+    public ReportingResponse<TransactionSummaryReport> getTransactionSummaryReport(String mId, TransactionSummaryRequest transactionSummaryRequest) {
+        transactionDashboardValidator.validateTransactionSummaryRequest(mId, transactionSummaryRequest);
+        log.info("Fetching transaction summary report for MID: {}, TransactionSummaryRequest : {}", mId, transactionSummaryRequest);
+        List<TransactionSummaryReport> transactionSummaryReports = transactionDashboardDao.getTransactionSummaryReport(mId, transactionSummaryRequest);
+        return ReportingResponse.<TransactionSummaryReport>builder().data(transactionSummaryReports).status(ReportingConstant.RESPONSE_SUCCESS).build();
+    }
+
+    /**
+     * Method Name: convertToListOfObject
+     * <p>
+     * Description: This method converts an OrderReport object into a list of objects
+     * where each element represents a field value in the report.
+     *
+     * @param recentTransactionReport OrderReport - The order report to convert.
+     * @return List<Object> - A list of field values of the OrderReport.
+     */
+    protected List<Object> convertToListOfObject(RecentTransactionReport recentTransactionReport) {
+        return List.of(ObjectUtils.isEmpty(recentTransactionReport.getTotalTransactionCount()) ? 0 : recentTransactionReport.getTotalTransactionCount(),
+                ObjectUtils.isEmpty(recentTransactionReport.getTotalOrderAmount()) ? 0.00 : recentTransactionReport.getTotalOrderAmount(),
+                ObjectUtils.isEmpty(recentTransactionReport.getTotalRefundAmount()) ? 0.00 : recentTransactionReport.getTotalRefundAmount(),
+                ObjectUtils.isEmpty(recentTransactionReport.getTotalTaxAmount()) ? 0.00 : recentTransactionReport.getTotalTaxAmount(),
+                ObjectUtils.isEmpty(recentTransactionReport.getTotalNetSettlementAmount()) ? 0.00 : recentTransactionReport.getTotalNetSettlementAmount(),
+                ObjectUtils.isEmpty(recentTransactionReport.getTotalSettledAmount()) ? 0.00 : recentTransactionReport.getTotalSettledAmount(),
+                ObjectUtils.isEmpty(recentTransactionReport.getTotalPendingSettlementAmount()) ? 0.00 : recentTransactionReport.getTotalPendingSettlementAmount(),
+                StringUtils.isEmpty(recentTransactionReport.getTransactionDate()) ? StringUtils.EMPTY : recentTransactionReport.getTransactionDate());
+    }
+
+    protected void buildReport(String mId, List<String> header, List<List<Object>> fileData, HttpServletResponse response) {
+        FileModel fileModel = fileGeneratorService.buildFileModel(
+                ReportFormat.CSV, header, fileData, Map.of("headers", header, "rows", fileData)
+        );
+        log.info("File model created, generating file for GST Invoice.");
+        fileGeneratorService.downloadFile(response, ReportFormat.CSV, Report.GST_INVOICE, mId, fileModel);
+    }
+
+    protected List<String> getHeaders() {
+        return Arrays.asList(
+                "Total Transaction Count",
+                "Total Order Amount",
+                "Total Refund Amount",
+                "Total Tax Amount",
+                "Total Net Settlement Amount",
+                "Total Settled Amount",
+                "Total Pending Settlement Amount",
+                "Transaction Date"
+        );
+    }
+}
+
+
+
+
+
+----------------------------validator----------------------------------
+
+package com.epay.reporting.validator;
+
+import com.epay.reporting.exception.ValidationException;
+import com.epay.reporting.model.request.RecentTransactionRequest;
+import com.epay.reporting.model.request.TransactionSummaryRequest;
+import com.epay.reporting.util.enums.Frequency;
+import com.sbi.epay.logging.utility.LoggerFactoryUtility;
+import com.sbi.epay.logging.utility.LoggerUtility;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
+
+import java.util.ArrayList;
+import java.util.stream.Stream;
+
+import static com.epay.reporting.util.ErrorConstants.*;
+import static com.epay.reporting.util.ReportingConstant.FREQUENCY;
+import static com.epay.reporting.util.ReportingConstant.FROM_DATE;
+import static com.epay.reporting.util.ReportingConstant.TO_DATE;
+
+/**
+ * Class Name: TransactionDashboardValidator
+ * *
+ * Description: This class validates the dashboard transactions
+ * *
+ * Author: Ranu Jain
+ * <p>
+ * Copyright (c) 2025 [State Bank of India]
+ * All rights reserved
+ * *
+ * Version:1.0
+ */
+@Component
+@RequiredArgsConstructor
+public class TransactionDashboardValidator extends BaseValidator {
+
+    private final LoggerUtility logger = LoggerFactoryUtility.getLogger(this.getClass());
+    private final MIdValidator mIdValidator;
+
+    /**
+     * Validates the report schedule management request by checking mandatory fields and their values.
+     * Also validates the MId by checking if it's active.
+     *
+     * @param recentTransactionRequest The request object containing the recent transaction request details.
+     * @throws ValidationException if any validation fails.
+     */
+    public void validateRequest(String mId, RecentTransactionRequest recentTransactionRequest) {
+        logger.debug("Request Validation start for {}", recentTransactionRequest);
+        errorDtoList = new ArrayList<>();
+        validationMandatory(recentTransactionRequest);
+        checkLeadingTrailingAndSingleSpace(recentTransactionRequest);
+        validateFieldsValue(recentTransactionRequest);
+        mIdValidator.validateActiveMId(mId);
+        logger.debug("Request Validation end for {}", recentTransactionRequest);
+    }
+
+    /**
+     * Validates the report schedule management request by checking mandatory fields and their values.
+     * Also validates the MId by checking if it's active.
+     *
+     * @param mId : String The merchant id.
+     * @param frequency : String Frequency either DAILY/MONTHLY/YEARLY
+     * @throws ValidationException if any validation fails.
+     */
+    public void validateTransactionTrendsRequest(String mId, String frequency) {
+        logger.debug("Request Transaction Trends Validation start for mid : {} and frequency : {}", mId, frequency);
+        errorDtoList = new ArrayList<>();
+        validationMandatory(mId, frequency);
+        checkLeadingTrailingAndSingleSpace(mId, frequency);
+        validateFieldsValue(mId, frequency);
+        mIdValidator.validateActiveMId(mId);
+        logger.debug("Request Transaction Trends Validation end for mid : {} and frequency : {}", mId, frequency);
+    }
+
+    /**
+     * Validates the validate Transaction Summary Request by checking mandatory fields and their values.
+     * Also validates the MId by checking if it's active.
+     *
+     * @param mId : String The merchant id.
+     * @param transactionSummaryRequest : TransactionSummaryRequest
+     */
+    public void validateTransactionSummaryRequest(String mId, TransactionSummaryRequest transactionSummaryRequest) {
+        logger.debug("Request Transaction Trends Validation start for mid : {} and frequency : {}", mId);
+        errorDtoList = new ArrayList<>();
+        validationMandatory(mId, transactionSummaryRequest);
+        checkLeadingTrailingAndSingleSpace(mId, transactionSummaryRequest);
+        validateFieldsValue(mId, transactionSummaryRequest);
+        mIdValidator.validateActiveMId(mId);
+        logger.debug("Request Transaction Trends Validation end for mid : {} and frequency : {}", mId);
+    }
+
+    /**
+     * Checks for mandatory fields request.
+     *
+     * @param recentTransactionRequest RecentTransactionRequest.
+     */
+    private void validationMandatory(RecentTransactionRequest recentTransactionRequest) {
+        checkMandatoryField(recentTransactionRequest.getFrequency(), FREQUENCY);
+        checkMandatoryField(recentTransactionRequest.getFromDate(), FROM_DATE);
+        checkMandatoryField(recentTransactionRequest.getToDate(), TO_DATE);
+        throwIfErrors();
+    }
+
+    /**
+     * Checks for mandatory fields in the request.
+     *
+     * @param mId String.
+     * @throws ValidationException if any mandatory field is missing.
+     */
+    private void validationMandatory(String mId, TransactionSummaryRequest transactionSummaryRequest) {
+        checkMandatoryField(mId, MID);
+        checkMandatoryField(transactionSummaryRequest.getFromDate(), FROM_DATE);
+        checkMandatoryField(transactionSummaryRequest.getToDate(), TO_DATE);
+        throwIfErrors();
+    }
+
+    /**
+     * Checks for mandatory fields in the download request.
+     *
+     * @param mId The Merchant ID.
+     * @throws ValidationException if any mandatory field is missing.
+     */
+    private void validationMandatory(String mId, String frequency) {
+        checkMandatoryField(mId, MID);
+        checkMandatoryField(frequency, FREQUENCY);
+        throwIfErrors();
+    }
+
+    /**
+     * Validates that all fields in the CaptchaRequest do not have leading, trailing, or multiple spaces.
+     *
+     * @param mId String.
+     */
+    private void checkLeadingTrailingAndSingleSpace(String mId, String frequency) {
+        checkForLeadingTrailingAndSingleSpace(mId, MID);
+        checkForLeadingTrailingAndSingleSpace(frequency, FREQUENCY);
+        throwIfErrors();
+    }
+
+    /**
+     * Validates that all fields in the RecentTransactionRequest do not have leading, trailing, or multiple spaces.
+     *
+     * @param recentTransactionRequest RecentTransactionRequest.
+     */
+    private void checkLeadingTrailingAndSingleSpace(RecentTransactionRequest recentTransactionRequest) {
+        checkForLeadingTrailingAndSingleSpace(recentTransactionRequest.getFrequency(), FREQUENCY);
+        checkForLeadingTrailingAndSingleSpace(recentTransactionRequest.getFromDate(), FROM_DATE);
+        checkForLeadingTrailingAndSingleSpace(recentTransactionRequest.getToDate(), TO_DATE);
+        throwIfErrors();
+    }
+
+    /**
+     * Validates that all fields in the checkLeadingTrailingAndSingleSpace do not have leading, trailing, or multiple spaces.
+     *
+     * @param mId String.
+     */
+    private void checkLeadingTrailingAndSingleSpace(String mId, TransactionSummaryRequest transactionSummaryRequest) {
+        checkForLeadingTrailingAndSingleSpace(mId, MID);
+        checkForLeadingTrailingAndSingleSpace(transactionSummaryRequest.getFromDate(), FROM_DATE);
+        checkForLeadingTrailingAndSingleSpace(transactionSummaryRequest.getToDate(), TO_DATE);
+        throwIfErrors();
+    }
+
+    /**
+     * Method name : validateFieldsValue
+     * Description : Validates fields values of merchant customer creation request
+     * @param mId : String
+     */
+    private void validateFieldsValue(String mId, String frequency) {
+        validateFieldWithRegex(mId, ALLOWED_DIGIT_REGEX, MID, INCORRECT_FORMAT);
+        validateFieldLength(mId, MID_LENGTH, MID);
+        validateFieldWithRegex(frequency, ALLOWED_ALPHABET_REGEX, FREQUENCY, INCORRECT_FORMAT);
+        throwIfErrors();
+        validateFrequencyValue(frequency);
+    }
+
+    /**
+     * Validates the values of fields in the RecentTransactionRequest object.
+     * @param recentTransactionRequest RecentTransactionRequest the request object containing details to be validated.
+     */
+    private void validateFieldsValue(RecentTransactionRequest recentTransactionRequest) {
+        validateFieldLength(recentTransactionRequest.getFromDate(), ALLOWED_SUMMARY_DATE_LENGTH,FROM_DATE);
+        validateFieldLength(recentTransactionRequest.getToDate(), ALLOWED_SUMMARY_DATE_LENGTH,TO_DATE);
+        validateFieldWithRegex(recentTransactionRequest.getFromDate(), ALLOWED_SUMMARY_DATE_REGEX, FROM_DATE, INCORRECT_FORMAT);
+        validateFieldWithRegex(recentTransactionRequest.getToDate(), ALLOWED_SUMMARY_DATE_REGEX, TO_DATE, INCORRECT_FORMAT);
+        validateFieldValue(recentTransactionRequest.getFrequency(), Stream.of(Frequency.values()).map(Enum::name).toList(), FREQUENCY);
+        throwIfErrors();
+    }
+
+    /**
+     * Method name : validateFieldsValue
+     * Description : Validates fields values of merchant customer creation request
+     * @param mId : String
+     */
+    private void validateFieldsValue(String mId, TransactionSummaryRequest transactionSummaryRequest) {
+        validateFieldLength(mId, MID_LENGTH, MID);
+        throwIfErrors();
+        validateFieldLength(transactionSummaryRequest.getFromDate(), ALLOWED_SUMMARY_DATE_LENGTH,FROM_DATE);
+        throwIfErrors();
+        validateFieldLength(transactionSummaryRequest.getToDate(), ALLOWED_SUMMARY_DATE_LENGTH,TO_DATE);
+        throwIfErrors();
+        validateFieldWithRegex(mId, ALLOWED_DIGIT_REGEX, MID,  INCORRECT_FORMAT);
+        throwIfErrors();
+        validateFieldWithRegex(transactionSummaryRequest.getFromDate(), ALLOWED_SUMMARY_DATE_REGEX, FROM_DATE, INCORRECT_FORMAT);
+        throwIfErrors();
+        validateFieldWithRegex(transactionSummaryRequest.getToDate(), ALLOWED_SUMMARY_DATE_REGEX, TO_DATE, INCORRECT_FORMAT);
+        throwIfErrors();
+    }
+
+    /**
+     * Method name : validateFrequencyValue
+     * Description : Validates Frequency values of merchant customer creation request
+     * @param frequency : String
+     */
+    private void validateFrequencyValue(String frequency) {
+        Frequency.getName(frequency).name();
+    }
+}
+
