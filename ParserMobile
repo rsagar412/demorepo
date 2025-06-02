@@ -1,0 +1,92 @@
+
+
+Great progress, Sagar! To support TXT file parsing similar to your existing CSV parser, we’ll assume the TXT files are structured (e.g., pipe | or tab \t delimited). Here's what you need to do:
+
+
+---
+
+✅ 1. Create TxtParser Class
+
+package com.epay.rns.parser;
+
+import com.epay.rns.externalservice.RnsFileStorageService;
+import com.sbi.epay.logging.utility.LoggerFactoryUtility;
+import com.sbi.epay.logging.utility.LoggerUtility;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
+
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+@RequiredArgsConstructor
+@Component
+public class TxtParser {
+
+    private final LoggerUtility logger = LoggerFactoryUtility.getLogger(this.getClass());
+    private final RnsFileStorageService rnsFileStorageService;
+
+    public List<String[]> downloadAndParseTxtFile(String fileKey, String delimiter) {
+        try {
+            InputStream inputStream = rnsFileStorageService.readFile(fileKey);
+            BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
+            List<String[]> lines = new ArrayList<>();
+
+            String line;
+            while ((line = reader.readLine()) != null) {
+                lines.add(line.split(delimiter)); // Default e.g. "\\|"
+            }
+
+            return lines;
+
+        } catch (Exception e) {
+            logger.debug("Reading TXT file failed for filePath: {}", fileKey);
+            return Collections.emptyList();
+        }
+    }
+}
+
+
+---
+
+✅ 2. Update ParserService to Inject TxtParser
+
+@RequiredArgsConstructor
+@Service
+public class ParserService {
+
+    private final CsvParser csvParser;
+    private final TxtParser txtParser; // Add this
+    ...
+}
+
+
+---
+
+✅ 3. Extend downloadAndProcessFile() in ParserService
+
+Update the switch-case to handle TXT:
+
+private List<String[]> downloadAndProcessFile(String s3Path, String type) {
+    return switch (ReconFileType.getFileType(type)) {
+        case CSV -> csvParser.downloadAndParseCsvFile(s3Path);
+        case TXT -> txtParser.downloadAndParseTxtFile(s3Path, "\\|"); // or "\t" based on actual format
+        case XLS, XLSX -> throw new IllegalArgumentException("Yet to implement for type: " + type);
+    };
+}
+
+
+---
+
+✅ Optional Config Enhancement
+
+If delimiters differ across files, you might consider adding a delimiter field to your FileConfigDto and pass it to the parser instead of hardcoding it.
+
+
+---
+
+Would you like help parsing .xls or .xlsx files next using Apache POI?
+
