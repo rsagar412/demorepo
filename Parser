@@ -1,0 +1,256 @@
+package com.epay.rns.parser;
+
+import com.epay.rns.externalservice.RnsFileStorageService;
+import com.opencsv.CSVReader;
+import com.opencsv.exceptions.CsvException;
+import com.sbi.epay.logging.utility.LoggerFactoryUtility;
+import com.sbi.epay.logging.utility.LoggerUtility;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
+
+import java.io.*;
+import java.util.Collections;
+import java.util.List;
+
+/**
+ * Class Name: CsvParser
+ * *
+ * Description: Read Csv file data and store in database
+ * *
+ * Author:@V0000001(Shilpa Kothre)
+ * <p>
+ * Copyright (c) 2025 [State Bank of India]
+ * All rights reserved
+ * *
+ * Version:1.0
+ */
+@RequiredArgsConstructor
+@Component
+public class CsvParser {
+
+    private final LoggerUtility logger = LoggerFactoryUtility.getLogger(this.getClass());
+    private final RnsFileStorageService rnsFileStorageService;
+
+    public List<String[]> downloadAndParseCsvFile(String fileKey) {
+
+        try {
+            InputStream inputStream = rnsFileStorageService.readFile(fileKey);
+            InputStreamReader reader = new InputStreamReader(inputStream);
+            return new CSVReader(reader).readAll();
+
+        } catch (IOException | CsvException e) {
+            logger.debug("Reading csv file failed for filePath: {}", fileKey);
+            return Collections.emptyList();
+        }
+    }
+
+}
+
+-------------------------------------------------- ReconFileStorageService -------------------------
+
+package com.epay.rns.externalservice;
+
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.File;
+import java.io.InputStream;
+import java.util.List;
+
+/**
+ * Class Name: ReconFileStorageService
+ * Description: The ReconFileStorageService interface provides functionalities to interact with AWS S3 for uploading, downloading, and listing files.
+ * It supports uploading files as a File, byte array, or MultipartFile, and handles the S3 client operations like put, get, and list objects.
+ * It also provides error handling, logging, and custom exception throwing in case of S3 operation failures.
+ * Author: Bhoopendra Rajput
+ * <p>
+ * Copyright (c) 2025 [State Bank of India]
+ * All rights reserved
+ * Version: 1.0
+ */
+
+
+
+
+@Service
+public interface RnsFileStorageService {
+
+    /**
+     * Uploads a file to S3 using the provided File object.
+     * @param file the file to upload
+     * @return the S3 key for the uploaded file
+     */
+    String uploadFile(File file);
+
+    /**
+     * Uploads a file to S3 using byte array content.
+     * @param fileName    the name of the file
+     * @param fileContent the content of the file as byte array
+     * @return the S3 key for the uploaded file
+     */
+    String uploadFile(String fileName, byte[] fileContent);
+
+    /**
+     * @param file MultipartFile
+     * @return String
+     */
+    String uploadFile(MultipartFile file);
+
+    /**
+     * Download file content to HttpServletRepose.
+     * @param response HttpServletResponse
+     * @param fileName String
+     */
+    void downloadFile(HttpServletResponse response, String fileName);
+
+    /**
+     * Return list of S3 uploaded file keys.
+     * @return List
+     */
+    List<String> listObjects();
+
+    /**
+     * Reads file content from S3 and returns it as a ResponseBytes object.
+     * @param key the S3 file key
+     * @return file content as ResponseBytes
+     */
+    InputStream readFile(String key);
+}
+
+
+
+
+------------------------------------------- ParserService ----------------------------------
+
+package com.epay.rns.service;
+
+import com.epay.rns.dao.FileConfigDao;
+import com.epay.rns.dao.ReconFileDtlsDao;
+import com.epay.rns.dao.ReconFileSummaryDao;
+import com.epay.rns.dto.FileConfigDto;
+import com.epay.rns.dto.ReconFileDtlsDto;
+import com.epay.rns.dto.ReconFileSummaryDto;
+import com.epay.rns.util.enums.ReconFileType;
+import com.epay.rns.parser.CsvParser;
+import com.epay.rns.util.DateTimeUtils;
+import com.epay.rns.util.enums.ParsingStatus;
+import com.sbi.epay.logging.utility.LoggerFactoryUtility;
+import com.sbi.epay.logging.utility.LoggerUtility;
+import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.ObjectUtils;
+import org.springframework.stereotype.Service;
+
+import java.math.BigDecimal;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Class Name: BankConfigFileResponse
+ * *
+ * Description:
+ * *
+ * Author:@V0000001(Shilpa Kothre)
+ * <p>
+ * Copyright (c) 2025 [State Bank of India]
+ * All rights reserved
+ * *
+ * Version:1.0
+ */
+
+@Service
+@RequiredArgsConstructor
+public class ParserService {
+
+    private final CsvParser csvParser;
+    private final ReconFileSummaryDao reconFileSummaryDao;
+    private final ReconFileDtlsDao reconFileDtlsDao;
+    private final FileConfigDao fileConfigDao;
+
+    private final LoggerUtility logger = LoggerFactoryUtility.getLogger(this.getClass());
+
+    public void processReconFileData(String fileSummaryId) {
+
+        //1: Read the data using file Summary id
+        ReconFileSummaryDto reconFileSummaryDto = reconFileSummaryDao.findByFileSummaryId(fileSummaryId);
+        reconFileSummaryDto.setParsingStatus(ParsingStatus.IN_PROCESS);
+        reconFileSummaryDao.save(reconFileSummaryDto);
+
+        //2: Load config data using config Id
+        FileConfigDto fileConfigDto = fileConfigDao.loadFileConfig(reconFileSummaryDto.getConfigId());
+
+        //3: Read file from s3 and convert into List<String[]>
+        List<String[]> fileData = downloadAndProcessFile(fileConfigDto.getS3Path(), fileConfigDto.getFileType());
+
+        //4. Convert java object to ReconFileDtlsDto normalised form
+        List<ReconFileDtlsDto> reconFileDtlsDtoList = parseReconFileData(fileData, fileConfigDto);
+
+        //5. Save to DB
+        reconFileDtlsDao.save(reconFileDtlsDtoList);
+
+        //6. Update file summary metadata data
+        reconFileSummaryDto.setTotalRecords(reconFileDtlsDtoList.size());
+        reconFileSummaryDto.setParsingStatus(ParsingStatus.PARSED);
+        reconFileSummaryDao.save(reconFileSummaryDto);
+
+    }
+
+    private List<String[]> downloadAndProcessFile(String s3Path, String type) {
+
+        return switch (ReconFileType.getFileType(type)) {
+            case CSV -> csvParser.downloadAndParseCsvFile(s3Path);
+            case XLS, XLSX, TXT -> throw new IllegalArgumentException("Yet to implement for type: " + type); //TODO
+        };
+    }
+
+    public List<ReconFileDtlsDto> parseReconFileData(List<String[]> fileData, FileConfigDto fileConfigDto) {
+
+        List<ReconFileDtlsDto> reconFileDtlsDtoList = new LinkedList<>();
+        Map<String, Integer> HeaderMapping = fileConfigDto.getHeaderMapping();
+        Map<String, String> valueMap = fileConfigDto.getValueMapping();
+
+        for (int i = fileConfigDto.getFileReadFrom() - 1; i < fileData.size(); i++) {
+
+            String[] rowData = fileData.get(i);
+            ReconFileDtlsDto reconFileDtlsDto = new ReconFileDtlsDto();
+            reconFileDtlsDto.setRowNumber(i + 1);
+
+            for (Map.Entry<String, Integer> entrySet : HeaderMapping.entrySet()) {
+                mapReconFileData(reconFileDtlsDto, entrySet.getKey(), rowData[entrySet.getValue()], valueMap, fileConfigDto.getDateFormat());
+            }
+
+            reconFileDtlsDtoList.add(reconFileDtlsDto);
+        }
+
+        return reconFileDtlsDtoList;
+    }
+
+    private void mapReconFileData(ReconFileDtlsDto reconFileDtls, String header, String value, Map<String, String> valueMap, String dateFormat) {
+
+        String dataValue = value;
+
+        try {
+
+            //1: Map file data value to system master value
+            if (ObjectUtils.isNotEmpty(valueMap) && valueMap.containsKey(value)) {
+                dataValue = valueMap.get(value);
+            }
+
+            //2: map to field and value
+            switch (header.trim().toLowerCase()) {
+                case "atrn" -> reconFileDtls.setAtrnNum(dataValue);
+                case "recordtype" -> reconFileDtls.setRecordType(dataValue);
+                case "paymentamount" -> reconFileDtls.setPaymentAmount(new BigDecimal(dataValue));
+                case "paymentdate" -> reconFileDtls.setPaymentDate(DateTimeUtils.convertToMillis(dataValue, dateFormat));
+                case "bankrefnumber" -> reconFileDtls.setBankRefNumber(dataValue);
+                case "paymentstatus" -> reconFileDtls.setPaymentStatus(dataValue);
+                default -> logger.error("header {} is not matching with configuration", header);
+            }
+
+        } catch (NumberFormatException e) {
+           logger.error("Error while mapping header:{} and value: {}", header, value);
+        }
+
+    }
+}
