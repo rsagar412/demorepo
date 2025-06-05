@@ -1,0 +1,159 @@
+To implement GemFire caching in your Spring Boot application like the admin service, follow these steps:
+
+
+---
+
+✅ 1. Add Dependencies
+
+In your build.gradle, add the necessary Spring Data for Apache Geode (GemFire) dependencies:
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-data-geode'
+    implementation 'org.apache.geode:geode-core'
+}
+
+> For Spring Boot 3.3, compatibility is limited — Spring Data for Apache Geode may require additional configuration. Let me know if you're open to using Apache Geode or VMware Tanzu GemFire for cloud deployment.
+
+
+
+
+---
+
+✅ 2. Configure application.yml
+
+Add basic GemFire configuration (update host if remote or clustered setup):
+
+spring:
+  data:
+    geode:
+      cache:
+        name: gemfireCache
+        log-level: config
+      pool:
+        subscription-enabled: true
+      locator:
+        host: localhost
+        port: 10334
+
+You can use this for embedded mode during dev.
+
+
+---
+
+✅ 3. Define Cache Entity (@Region)
+
+You've already done this correctly with @Region(name = "RNS_Parser"):
+
+@Data
+@Region(name = "RNS_Parser")
+public class RnsCache implements Serializable {
+    private UUID configId;
+    private String sftpPath;
+    private String fileName;
+    ...
+}
+
+Make sure the class has a unique identifier (id) — you're using a String id field, so it’s fine.
+
+
+---
+
+✅ 4. Create Repository Interface
+
+@Repository
+public interface RnsCacheRepository extends CrudRepository<RnsCache, String> {
+    Optional<RnsCache> findByConfigId(UUID configId);
+}
+
+You can also use @Query for complex queries.
+
+
+---
+
+✅ 5. Enable Caching & Region Configuration
+
+In your Spring Boot app class:
+
+@SpringBootApplication
+@EnableCaching
+@EnableEntityDefinedRegions(basePackageClasses = RnsCache.class)
+public class ReconSettlementServiceApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(ReconSettlementServiceApplication.class, args);
+    }
+}
+
+@EnableEntityDefinedRegions will auto-create regions based on the @Region annotation.
+
+
+---
+
+✅ 6. Use the Cache in DAO
+
+You can modify your FileConfigDao to use the cache like this:
+
+@Component
+@RequiredArgsConstructor
+public class FileConfigDao {
+
+    private final RnsCacheRepository cacheRepository;
+    private final AdminDao adminDao;
+    private final FileConfigMapper fileConfigMapper;
+    private final LoggerUtility logger = LoggerFactoryUtility.getLogger(this.getClass());
+
+    public FileConfigDto loadFileConfig(UUID configId) {
+        Optional<RnsCache> cacheOpt = cacheRepository.findByConfigId(configId);
+        if (cacheOpt.isPresent()) {
+            logger.info("Fetched from cache");
+            return fileConfigMapper.mapToDtoFromCache(cacheOpt.get());
+        }
+
+        // Fallback to admin service
+        BankConfigFileResponse bankConfigFileResponse = adminDao.loadFileConfig(configId);
+        FileConfigDto dto = fileConfigMapper.mapToDto(bankConfigFileResponse);
+
+        // Save to cache
+        RnsCache rnsCache = fileConfigMapper.mapToCacheEntity(dto);
+        cacheRepository.save(rnsCache);
+
+        return dto;
+    }
+}
+
+
+---
+
+✅ 7. Start Local GemFire Cache Server (Optional)
+
+For dev/testing, you can start an embedded server using:
+
+@Bean
+public CacheFactoryBean cacheFactoryBean() {
+    CacheFactoryBean factory = new CacheFactoryBean();
+    factory.setClose(true);
+    factory.setEnableAutoReconnect(true);
+    factory.setUseBeanFactoryLocator(false);
+    return factory;
+}
+
+Or, install Apache Geode and run:
+
+gfsh
+start locator --name=locator
+start server --name=server --locators=localhost[10334]
+
+
+---
+
+🧠 Optional Enhancements
+
+Add @Cacheable annotations for transparent caching.
+
+Set up expiration policies with @EnableExpiration.
+
+
+
+---
+
+Would you like me to generate a working example project skeleton or Gradle + config setup with these steps?
+
