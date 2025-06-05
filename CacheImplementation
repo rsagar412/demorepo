@@ -1,0 +1,136 @@
+package com.sbi.epay.cache.admin.entity;
+
+
+import lombok.Data;
+import org.springframework.data.gemfire.mapping.annotation.Region;
+
+import java.io.Serializable;
+import java.math.BigDecimal;
+import java.util.Map;
+import java.util.UUID;
+
+@Data
+@Region(name = "RNS_Parser")
+public class RnsCache implements Serializable {
+
+
+    private UUID rfsId;
+    private UUID configId;
+    private String sftpPath;
+    private String fileName;
+    private String bankCode;
+    private Long fileReceivedTime;
+    private Long fileUploadTime;
+    private BigDecimal totalAmount;
+    private Integer totalRecords;
+    private Integer passedRecords;
+    private Integer failedRecords;
+    private String reconStatus;
+    private Long reconTime;
+    private String settlementStatus;
+    private Long settlementTime;
+    private String remark;
+
+    private String id;
+    private String s3Path;
+    private String fileType;
+    private String fileDelimiter;
+    private int fileHeaderRow;
+    private boolean fileHeader;
+    private Map<String, Integer> headerMapping;
+    private Map<String, String> valueMapping;
+    private int fileReadFrom;
+    private Integer fileHashRow;
+    private String fileHashHeader;
+    private String dateFormat;
+    private long fileSummaryRow;
+    private String fileSummaryHeader;
+    private boolean fileEncrypted;
+    private String fileEncLevel;
+    private String fileEncKey;
+}
+
+
+-------------------------------------------------------------------- BankFileConfigCacheRepository ---------------------------------
+package com.epay.rns.repository.cache;
+
+import com.sbi.epay.cache.admin.entity.BankFileConfigCache;
+import org.springframework.data.repository.CrudRepository;
+import org.springframework.stereotype.Repository;
+
+/**
+ * Class Name: BankFileConfigCacheRepository.
+ * *
+ * Description: Repository for Bank file config cache details.
+ * *
+ * Author: Gireesh M.
+ * <p>
+ * Copyright (c) 2025 [State Bank of India].
+ * All rights reserved.
+ * *
+ * Version:1.0
+ */
+@Repository
+public interface BankFileConfigCacheRepository extends CrudRepository<BankFileConfigCache, String> {
+    BankFileConfigCache findByBankIdAndSftpPathAndFileType(String bankCode, String sftpPath, String fileType);
+}
+
+
+
+------------------------------------ FileConfigDao ----------------------
+package com.epay.rns.dao;
+
+
+import com.epay.rns.dto.FileConfigDto;
+import com.epay.rns.exception.RnSException;
+import com.epay.rns.externalservice.AdminServicesClient;
+import com.epay.rns.mapper.FileConfigMapper;
+import com.epay.rns.model.response.BankConfigFileResponse;
+import com.epay.rns.model.response.RnSResponse;
+import com.epay.rns.util.RnSConstant;
+import com.sbi.epay.logging.utility.LoggerFactoryUtility;
+import com.sbi.epay.logging.utility.LoggerUtility;
+import lombok.RequiredArgsConstructor;
+import org.apache.commons.collections4.CollectionUtils;
+import org.springframework.stereotype.Component;
+import software.amazon.awssdk.core.pagination.sync.PaginatedResponsesIterator;
+
+import java.text.MessageFormat;
+import java.util.UUID;
+
+import static com.epay.rns.util.ErrorConstant.NOT_FOUND_ERROR_CODE;
+import static com.epay.rns.util.ErrorConstant.NOT_FOUND_ERROR_MESSAGE;
+
+/**
+ * Class Name:FileConfigDao
+ * *
+ * Description:
+ * *
+ * Author:NIRMAL GURJAR
+ * <p>
+ * Copyright (c) 2025 [State Bank of India]
+ * All right reserved
+ * *
+ * Version:1.0
+ */
+@Component
+@RequiredArgsConstructor
+public class FileConfigDao {
+
+    private final AdminDao adminDao;
+    private final FileConfigMapper fileConfigMapper;
+
+    private final LoggerUtility logger = LoggerFactoryUtility.getLogger(this.getClass());
+
+    public FileConfigDto loadFileConfig(UUID configId){
+
+        //TODO first check from cache then call admin service
+
+        BankConfigFileResponse bankConfigFileResponse = adminDao.loadFileConfig(configId);
+
+        return fileConfigMapper.mapToDto(bankConfigFileResponse);
+    }
+
+
+}
+
