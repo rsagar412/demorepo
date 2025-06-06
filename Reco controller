@@ -1,0 +1,121 @@
+package com.epay.rns.controller;
+
+import com.epay.rns.dto.ReconFileSummaryDto;
+import com.epay.rns.service.ParserService;
+import com.epay.rns.dao.ReconFileSummaryDao;
+import com.sbi.epay.logging.utility.LoggerFactoryUtility;
+import com.sbi.epay.logging.utility.LoggerUtility;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.UUID;
+
+/**
+ * Controller for testing Recon File processing and retrieval.
+ */
+@RestController
+@RequestMapping("/api/recon")
+public class ReconFileController {
+
+    private final ParserService parserService;
+    private final ReconFileSummaryDao reconFileSummaryDao;
+    private final LoggerUtility logger = LoggerFactoryUtility.getLogger(this.getClass());
+
+    public ReconFileController(ParserService parserService, ReconFileSummaryDao reconFileSummaryDao) {
+        this.parserService = parserService;
+        this.reconFileSummaryDao = reconFileSummaryDao;
+    }
+
+    /**
+     * Endpoint to process a recon file by fileSummaryId.
+     *
+     * @param fileSummaryId The ID of the file summary to process.
+     * @return ResponseEntity with the result of the processing.
+     */
+    @PostMapping("/process/{fileSummaryId}")
+    public ResponseEntity<String> processReconFile(@PathVariable String fileSummaryId) {
+        try {
+            logger.info("Processing recon file for fileSummaryId: {}", fileSummaryId);
+            parserService.processReconFileData(fileSummaryId);
+            return ResponseEntity.ok("File processed successfully for fileSummaryId: " + fileSummaryId);
+        } catch (Exception e) {
+            logger.error("Error processing recon file for fileSummaryId: {}. Error: {}", fileSummaryId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Failed to process file: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Endpoint to retrieve ReconFileSummary by fileSummaryId.
+     *
+     * @param fileSummaryId The ID of the file summary to retrieve.
+     * @return ResponseEntity with the ReconFileSummaryDto.
+     */
+    @GetMapping("/summary/{fileSummaryId}")
+    public ResponseEntity<ReconFileSummaryDto> getReconFileSummary(@PathVariable String fileSummaryId) {
+        try {
+            logger.info("Fetching recon file summary for fileSummaryId: {}", fileSummaryId);
+            ReconFileSummaryDto summary = reconFileSummaryDao.findByFileSummaryId(fileSummaryId);
+            return ResponseEntity.ok(summary);
+        } catch (Exception e) {
+            logger.error("Error fetching recon file summary for fileSummaryId: {}. Error: {}", fileSummaryId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(null);
+        }
+    }
+
+    /**
+     * Endpoint to retrieve ReconFileSummary by bankCode.
+     *
+     * @param bankCode The bank code to search for.
+     * @return ResponseEntity with the ReconFileSummaryDto.
+     */
+    @GetMapping("/summary/bank/{bankCode}")
+    public ResponseEntity<ReconFileSummaryDto> getReconFileSummaryByBankCode(@PathVariable String bankCode) {
+        try {
+            logger.info("Fetching recon file summary for bankCode: {}", bankCode);
+            ReconFileSummaryDto summary = reconFileSummaryDao.findByBankCode(bankCode);
+            return ResponseEntity.ok(summary);
+        } catch (Exception e) {
+            logger.error("Error fetching recon file summary for bankCode: {}. Error: {}", bankCode, e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(null);
+        }
+    }
+}
+
+
+
+Update to ReconFileSummaryDaoThe current ReconFileSummaryDao doesn't have a method to fetch by bankCode, but your ReconFileSummaryRepository has a findByBankCode method. Let's add this functionality to the DA
+
+
+@Component
+@RequiredArgsConstructor
+public class ReconFileSummaryDao {
+
+    private final LoggerUtility logger = LoggerFactoryUtility.getLogger(this.getClass());
+    private final ReconFileSummaryRepository reconFileSummaryRepository;
+    private final ReconFileSummaryMapper reconFileSummaryMapper;
+
+    public ReconFileSummaryDto findByFileSummaryId(String fileSummaryId) {
+        logger.info("Finding file summary for file id: {}", fileSummaryId);
+        ReconFileSummary reconFileSummary = reconFileSummaryRepository.findById(fileSummaryId)
+                .orElseThrow(() -> new RnSException(NOT_FOUND_ERROR_CODE, "summary id not found"));
+        return reconFileSummaryMapper.mapToReconFileSummaryDto(reconFileSummary);
+    }
+
+    public ReconFileSummaryDto findByBankCode(String bankCode) {
+        logger.info("Finding file summary for bank code: {}", bankCode);
+        ReconFileSummary reconFileSummary = reconFileSummaryRepository.findByBankCode(bankCode)
+                .orElseThrow(() -> new RnSException(NOT_FOUND_ERROR_CODE, "summary not found for bank code: " + bankCode));
+        return reconFileSummaryMapper.mapToReconFileSummaryDto(reconFileSummary);
+    }
+
+    public void save(ReconFileSummaryDto reconFileSummaryDto) {
+        logger.info("Saving summary for file: {}", reconFileSummaryDto.getFileName());
+        reconFileSummaryRepository.save(reconFileSummaryMapper.mapToEntity(reconFileSummaryDto));
+    }
+}
+
+O.
