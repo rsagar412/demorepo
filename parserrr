@@ -1,0 +1,363 @@
+@Repository
+public interface ReconFileSummaryRepository  extends JpaRepository<ReconFileSummary,String> {
+
+    /**
+     * @return ReconFileSummary
+     */
+     Optional <ReconFileSummary> findByBankCode(String bankCode);
+
+}
+
+
+
+
+
+@Data
+@Entity
+@Table(name = "RECON_FILE_SUMMARY")
+public class ReconFileSummary {
+
+    @Id
+    private UUID rfsId;
+    private UUID configId;
+    private String sftpPath;
+    private String s3Path;
+    private String fileName;
+    private String bankCode;
+    private long fileReceivedTime;
+    private long fileUploadTime;
+    private int totalRecords;
+    private BigDecimal totalAmount;
+    private ParsingStatus parsingStatus;
+    private int passedRecords;
+    private int failedRecords;
+    private String reconStatus;
+    private long reconTime;
+    private String settlementStatus;
+    private long settlementTime;
+}
+
+
+
+
+@Component
+@RequiredArgsConstructor
+public class ReconFileSummaryDao {
+
+    private final LoggerUtility logger = LoggerFactoryUtility.getLogger(this.getClass());
+    private final ReconFileSummaryRepository reconFileSummaryRepository;
+    private final ReconFileSummaryMapper reconFileSummaryMapper;
+
+    public ReconFileSummaryDto findByFileSummaryId(String fileSummaryId) {
+        logger.info("Finding file summary for file id: {}", fileSummaryId);
+        ReconFileSummary reconFileSummary = reconFileSummaryRepository.findById(fileSummaryId).orElseThrow(() -> new RnSException(NOT_FOUND_ERROR_CODE, "summary id not found"));
+        return reconFileSummaryMapper.mapToReconFileSummaryDto(reconFileSummary);
+    }
+
+    public void save(ReconFileSummaryDto reconFileSummaryDto) {
+        logger.info("Saving summary for file : {}", reconFileSummaryDto.getFileName());
+        reconFileSummaryRepository.save(reconFileSummaryMapper.mapToEntity(reconFileSummaryDto));
+    }
+}
+
+
+
+
+
+
+@Data
+@Builder
+@AllArgsConstructor
+@NoArgsConstructor
+public class ReconFileSummaryDto {
+
+    private UUID rfsId;
+    private UUID configId;
+    private String sftpPath;
+    private String fileName;
+    private String bankCode;
+    private Long fileReceivedTime;
+    private Long fileUploadTime;
+    private BigDecimal totalAmount;
+    private ParsingStatus parsingStatus;
+    private Integer totalRecords;
+    private Integer passedRecords;
+    private Integer failedRecords;
+    private String reconStatus;
+    private Long reconTime;
+    private String settlementStatus;
+    private Long settlementTime;
+    private String remark;
+}
+
+
+
+
+
+package com.epay.rns.service;
+
+import com.epay.rns.dao.FileConfigDao;
+import com.epay.rns.dao.ReconFileDtlsDao;
+import com.epay.rns.dao.ReconFileSummaryDao;
+import com.epay.rns.dto.FileConfigDto;
+import com.epay.rns.dto.ReconFileDtlsDto;
+import com.epay.rns.dto.ReconFileSummaryDto;
+import com.epay.rns.parser.TxtParser;
+import com.epay.rns.util.enums.ReconFileType;
+import com.epay.rns.parser.CsvParser;
+import com.epay.rns.util.DateTimeUtils;
+import com.epay.rns.util.enums.ParsingStatus;
+import com.sbi.epay.logging.utility.LoggerFactoryUtility;
+import com.sbi.epay.logging.utility.LoggerUtility;
+import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.ObjectUtils;
+import org.springframework.stereotype.Service;
+
+import java.math.BigDecimal;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Class Name: BankConfigFileResponse
+ * *
+ * Description:
+ * *
+ * Author:@V0000001(Shilpa Kothre)
+ * <p>
+ * Copyright (c) 2025 [State Bank of India]
+ * All rights reserved
+ * *
+ * Version:1.0
+ */
+
+@Service
+@RequiredArgsConstructor
+public class ParserService {
+
+    private final CsvParser csvParser;
+    private final TxtParser txtParser;
+    private final ReconFileSummaryDao reconFileSummaryDao;
+    private final ReconFileDtlsDao reconFileDtlsDao;
+    private final FileConfigDao fileConfigDao;
+
+    private final LoggerUtility logger = LoggerFactoryUtility.getLogger(this.getClass());
+
+    public void processReconFileData(String fileSummaryId) {
+
+        //1: Read the data using file Summary id
+        ReconFileSummaryDto reconFileSummaryDto = reconFileSummaryDao.findByFileSummaryId(fileSummaryId);
+        reconFileSummaryDto.setParsingStatus(ParsingStatus.IN_PROCESS);
+        reconFileSummaryDao.save(reconFileSummaryDto);
+
+        //2: Load config data using config Id
+        FileConfigDto fileConfigDto = fileConfigDao.loadFileConfig(reconFileSummaryDto.getConfigId());
+
+        //3: Read file from s3 and convert into List<String[]>
+        List<String[]> fileData = downloadAndProcessFile(fileConfigDto.getS3Path(), fileConfigDto.getFileType(), fileConfigDto.getFileDelimiter());
+
+        //4. Convert java object to ReconFileDtlsDto normalised form
+        List<ReconFileDtlsDto> reconFileDtlsDtoList = parseReconFileData(fileData, fileConfigDto);
+
+        //5. Save to DB
+        reconFileDtlsDao.save(reconFileDtlsDtoList);
+
+        //6. Update file summary metadata data
+        reconFileSummaryDto.setTotalRecords(reconFileDtlsDtoList.size());
+        reconFileSummaryDto.setParsingStatus(ParsingStatus.PARSED);
+        reconFileSummaryDao.save(reconFileSummaryDto);
+
+    }
+
+    private List<String[]> downloadAndProcessFile(String s3Path, String type, String delimiter) {
+
+        return switch (ReconFileType.getFileType(type)) {
+            case CSV -> csvParser.downloadAndParseCsvFile(s3Path);
+            case TXT -> txtParser.downloadAndParseTxtFile(s3Path, delimiter);
+            case XLS, XLSX -> throw new IllegalArgumentException("Yet to implement for type: " + type); //TODO
+        };
+    }
+
+    public List<ReconFileDtlsDto> parseReconFileData(List<String[]> fileData, FileConfigDto fileConfigDto) {
+
+        List<ReconFileDtlsDto> reconFileDtlsDtoList = new LinkedList<>();
+        Map<String, Integer> HeaderMapping = fileConfigDto.getHeaderMapping();
+        Map<String, String> valueMap = fileConfigDto.getValueMapping();
+
+        for (int i = fileConfigDto.getFileReadFrom() - 1; i < fileData.size(); i++) {
+
+            String[] rowData = fileData.get(i);
+            ReconFileDtlsDto reconFileDtlsDto = new ReconFileDtlsDto();
+            reconFileDtlsDto.setRowNumber(i + 1);
+
+            for (Map.Entry<String, Integer> entrySet : HeaderMapping.entrySet()) {
+                mapReconFileData(reconFileDtlsDto, entrySet.getKey(), rowData[entrySet.getValue()], valueMap, fileConfigDto.getDateFormat());
+            }
+
+            reconFileDtlsDtoList.add(reconFileDtlsDto);
+        }
+
+        return reconFileDtlsDtoList;
+    }
+
+    private void mapReconFileData(ReconFileDtlsDto reconFileDtls, String header, String value, Map<String, String> valueMap, String dateFormat) {
+
+        String dataValue = value;
+
+        try {
+
+            //1: Map file data value to system master value
+            if (ObjectUtils.isNotEmpty(valueMap) && valueMap.containsKey(value)) {
+                dataValue = valueMap.get(value);
+            }
+
+            //2: map to field and value
+            switch (header.trim().toLowerCase()) {
+                case "atrn" -> reconFileDtls.setAtrnNum(dataValue);
+                case "recordtype" -> reconFileDtls.setRecordType(dataValue);
+                case "paymentamount" -> reconFileDtls.setPaymentAmount(new BigDecimal(dataValue));
+                case "paymentdate" -> reconFileDtls.setPaymentDate(DateTimeUtils.convertToMillis(dataValue, dateFormat));
+                case "bankrefnumber" -> reconFileDtls.setBankRefNumber(dataValue);
+                case "paymentstatus" -> reconFileDtls.setPaymentStatus(dataValue);
+                default -> logger.error("header {} is not matching with configuration", header);
+            }
+
+        } catch (NumberFormatException e) {
+           logger.error("Error while mapping header:{} and value: {}", header, value);
+        }
+
+    }
+}
+
+
+
+
+
+package com.epay.rns.parser;
+
+import com.epay.rns.externalservice.RnsFileStorageService;
+import com.sbi.epay.logging.utility.LoggerFactoryUtility;
+import com.sbi.epay.logging.utility.LoggerUtility;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
+
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedList;
+import java.util.List;
+
+@RequiredArgsConstructor
+@Component
+public class TxtParser {
+
+    private final LoggerUtility logger = LoggerFactoryUtility.getLogger(this.getClass());
+    private final RnsFileStorageService rnsFileStorageService;
+
+    public List<String[]> downloadAndParseTxtFile(String fileKey, String delimiter) {
+        try {
+            InputStream inputStream = rnsFileStorageService.readFile(fileKey);
+            BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
+            List<String[]> lines = new LinkedList<>();
+
+            String line;
+            while ((line = reader.readLine()) != null) {
+                lines.add(line.split(delimiter)); // Default e.g. "\\|"
+            }
+
+            return lines;
+
+        } catch (Exception e) {
+            logger.debug("Reading TXT file failed for filePath: {}", fileKey);
+            return Collections.emptyList();
+        }
+    }
+}
+
+
+
+
+package com.epay.rns.externalservice;
+
+import com.epay.rns.exception.RnSException;
+import com.epay.rns.util.CommonUtil;
+import com.sbi.epay.logging.utility.LoggerFactoryUtility;
+import com.sbi.epay.logging.utility.LoggerUtility;
+import jakarta.servlet.http.HttpServletResponse;
+import org.apache.commons.io.FileUtils;
+import org.springframework.context.annotation.Profile;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.*;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Objects;
+
+import static com.epay.rns.util.ErrorConstant.GENERIC_ERROR_CODE;
+import static com.epay.rns.util.ErrorConstant.GENERIC_ERROR_MESSAGE;
+
+@Service
+@Profile("local")
+public class LocalStorageService implements RnsFileStorageService {
+    private static final String ROOT_DIR = "S3_Files";
+    private final LoggerUtility log = LoggerFactoryUtility.getLogger(this.getClass());
+    @Override
+    public String uploadFile(File file) {
+        return file.getAbsolutePath();
+    }
+
+    @Override
+    public String uploadFile(String fileName, byte[] fileContent) {
+        File file = new File(ROOT_DIR, fileName);
+        try {
+            FileUtils.writeByteArrayToFile(file, fileContent, false);
+        } catch (IOException e) {
+            log.error("Failed to read file from local storage: {} with error: {}", file.getAbsoluteFile(), e.getMessage());
+            throw new RnSException(GENERIC_ERROR_CODE, GENERIC_ERROR_MESSAGE);
+        }
+        return file.getAbsolutePath();
+    }
+
+    @Override
+    public String uploadFile(MultipartFile file) {
+        File fileLocal = new File(ROOT_DIR, file.getName());
+        try {
+            FileUtils.writeByteArrayToFile(fileLocal, file.getBytes(), false);
+        } catch (IOException e) {
+            log.error("Failed to save file into local storage: {} with error: {}", fileLocal.getAbsoluteFile(), e.getMessage());
+            throw new RnSException(GENERIC_ERROR_CODE, GENERIC_ERROR_MESSAGE);
+        }
+        return fileLocal.getAbsolutePath();
+    }
+
+    @Override
+    public void downloadFile(HttpServletResponse response, String fileName) {
+        try {
+            CommonUtil.setHeader(response, MediaType.APPLICATION_PDF_VALUE, fileName);
+            response.getOutputStream().write(FileUtils.readFileToByteArray(new File(fileName)));
+            response.getOutputStream().flush();
+        } catch (IOException ex) {
+            log.error("Failed to download file from local storage or failed to set content to HttpServletResponse, fileName: '{}' and error: {}", fileName, ex.getMessage());
+            throw new RnSException(GENERIC_ERROR_CODE, GENERIC_ERROR_MESSAGE);
+        }
+    }
+
+    @Override
+    public List<String> listObjects() {
+        return Arrays.asList(Objects.requireNonNull(new File(ROOT_DIR).list()));
+    }
+
+    @Override
+    public InputStream readFile(String key) {
+        try {
+            return FileUtils.openInputStream(new File(ROOT_DIR, key));
+        } catch (IOException e) {
+            log.error("Failed to read file from local storage: {} with error: {}", key, e.getMessage());
+            throw new RnSException(GENERIC_ERROR_CODE, GENERIC_ERROR_MESSAGE);
+        }
+    }
+}
